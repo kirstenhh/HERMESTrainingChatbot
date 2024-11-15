@@ -1,28 +1,24 @@
+
+# --------------------------------------------------------------
+# Imports
+# --------------------------------------------------------------
+
 import gradio as gr
 import os
-import json
 import HERMES
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import time
-from enum import Enum
-
-from typing import Iterable
-# from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-# from llama_index.core.query_engine import CustomQueryEngine
-# from llama_index.core.retrievers import BaseRetriever
-# from llama_index.core import get_response_synthesizer
-# from llama_index.core.response_synthesizers import BaseSynthesizer
-# from llama_index.core import PromptTemplate
 from gradio.themes.base import Base
 from gradio.themes.utils import colors, fonts, sizes
-# from llama_index.llms.openai import OpenAI as openai
-import json
-from datetime import datetime
-from pathlib import Path
-from uuid import uuid4
-from huggingface_hub import CommitScheduler
-reference = HERMES.HermesRef
+from typing import Dict, Optional, Iterable
+reference = HERMES.reference
+from typing import List, Tuple, Optional
+from dataclasses import dataclass
+
+
+
 
 # --------------------------------------------------------------
 # loading openAI API Key
@@ -33,7 +29,7 @@ client = OpenAI(api_key=api_key)
 
 
 # --------------------------------------------------------------
-# Interface Theme
+# Gradio Interface Theme
 # --------------------------------------------------------------
 
 class Theme(Base):
@@ -46,15 +42,15 @@ class Theme(Base):
         spacing_size: sizes.Size | str = sizes.spacing_md,
         radius_size: sizes.Size | str = sizes.radius_md,
         text_size: sizes.Size | str = sizes.text_lg,
-
-
+    
+    
         font: fonts.Font
         | str
         | Iterable[fonts.Font | str] = (
             fonts.GoogleFont("Roboto"),
-
-        ),
-
+          
+        ), 
+        
     ):
         super().__init__(
             primary_hue=primary_hue,
@@ -64,15 +60,13 @@ class Theme(Base):
             radius_size=radius_size,
             text_size=text_size,
             font=font,
-
+    
         )
 
 
         super().set(
-        #block_title_text_weight="600",
-        #block_border_width="1.5px",
+
         block_shadow="*shadow_drop_lg",
-        #button_shadow="*shadow_drop_lg",
         body_background_fill=None,
         body_background_fill_dark=None,
         body_text_color='#606060',
@@ -85,8 +79,6 @@ class Theme(Base):
         border_color_primary_dark=None,
         input_border_color='#606060',
         body_text_size="40px",
-        #block_title_text_size="None",
-
         block_background_fill='#F4F4F4',
         block_background_fill_dark=None,
         block_label_background_fill='#1066FF',
@@ -101,28 +93,24 @@ class Theme(Base):
         button_primary_background_fill_dark=None,
         button_primary_text_color='white',
         button_primary_text_color_dark=None,
-
+        
 
         )
 
 # --------------------------------------------------------------
-# Helper classes
-# --------------------------------------------------------------
-#   --------------------
-#   Language enum
-#   --------------------
-class Language(Enum):
-    German=1
-    French=2
-    English=3
-
-
-
-# --------------------------------------------------------------
-# Questions
+# Questions Database for HERMES Training System
 # --------------------------------------------------------------
 
-#Question bank. TODO: Connect to question generator here.
+# This contains a collection of questions and answers related to
+# the HERMES project management methodology.
+# These questions are designed by Serge
+
+# The 'questions' list contains dictionaries with the following structure:
+# - question_text: The actual question being asked
+# - correct_answer: The complete correct answer to the question
+# - link: A reference number linking to the relevant section in HERMES documentation
+
+
 questions = [
 
     {"question_text": "In welche Phasen wird der HERMES-Projektlebenszyklus unterteilt?",
@@ -239,7 +227,7 @@ questions = [
 
     {"question_text": "Womit wird neben Projektlebenszyklus und Phasen die Projektstruktur weiter unterstützt?",
     "correct_answer": "Die Projektstruktur wird zusätzlich durch die im Kapitel 4 beschriebenen Meilensteine unterstützt. Sie markieren im Projektverlauf wichtige Entscheidungsergebnisse der Projektsteuerung und -führung.",
-    "link": "1.2.2"},
+    "link": "1.2.2"},  
 
     {'question_text': 'Was sind die gleichwertigen Methodenelemente, die gemeinsam die HERMES-Methode bilden?',
      'correct_answer': 'HERMES-Portfoliomanagement, HERMES-Projektmanagement und HERMES-Anwendungsmanagement',
@@ -248,351 +236,545 @@ questions = [
 ]
 
 # --------------------------------------------------------------
-# RAG ## TODO: Remove; not in the current version
+# Feedback functions:
+# get_link: Retrieves the documentation link form the HERMES manual for a given question
+# get_answer: Returns the correct answer for a given question
+# summarize: Provides a feedback summary of the question context and answer as a second step feedback
+# get_information: Retrieves detailed information for a specific chapter of the HERMES manual
 # --------------------------------------------------------------
 
-# --------------------------------------------------------------
-# Loading the documents
-# --------------------------------------------------------------
-
-# documents_questions = SimpleDirectoryReader("questions").load_data()
-# index_questions = VectorStoreIndex.from_documents(documents_questions)
-# retriever_questions = index_questions.as_retriever()
-
-# --------------------------------------------------------------
-# Using query engine
-# --------------------------------------------------------------
-#from llama_index.llms.openai import OpenAI
-
-'''
-class RAGQueryEngine(CustomQueryEngine):
-    """RAG Query Engine."""
-
-    retriever: BaseRetriever
-    response_synthesizer: BaseSynthesizer
-    llm: OpenAI
-
-
-    def custom_query(self, query_str: str):
-        nodes = self.retriever.retrieve(query_str)
-        response_obj = self.response_synthesizer.synthesize(query_str, nodes)
-        return response_obj
-llm = OpenAI(model="gpt-3.5-turbo")
-synthesizer = get_response_synthesizer(response_mode="compact")
-query_engine_question = RAGQueryEngine(retriever=retriever_questions, response_synthesizer=synthesizer, llm = llm)
-'''
-# --------------------------------------------------------------
-# Format the response as a JSON object ##TODO: Either use it or check that it is in use
-# --------------------------------------------------------------
-
-def format_response(response,instruction):
-
-    chat_completion = client.chat.completions.create(
-        messages = [{"role": "system", "content": instruction},
-        {"role": "user", "content": response},],
-        model = "gpt-3.5-turbo",
-        response_format = {"type": "json_object"},
-        temperature = 0.2,
-    ).choices[0]
-    content = chat_completion.message.content
-    formated_response = json.loads(content)
-    return formated_response
-
-# --------------------------------------------------------------
-# Feedback functions
-# --------------------------------------------------------------
-
-'''
-#RAG again; TODO remove
-
-def get_correctness_queryEngine(question,answer):
-    instruction_correctness = "classify the query as either correct or incorrect depending on the sense of the query and output a valid JSON containing the key correctness and the value as either correct or incorrect"
-    query= f" Is : [{answer}], the correct answer to the question :'question_text': [{question}], output as either 'correct' or 'incorrect'."
-    response = query_engine_question.query(query)
-    response = str(response)
-    formated_response = format_response(response,instruction_correctness)
-    return formated_response['correctness']
-
-    '''
-
-##TODO: Check that "link no tfound/ question not found" doesn't happen in most situations/ fix it if it does
 def get_link_questions(question):
+    """
+    Retrieves the documentation link associated with a specific question.
+    
+    Args:
+        question (str): The full text of the question to search for
+        
+    Returns:
+        str: The link reference number (e.g., "1.1.1") if found,
+             or "Link not found." if the question doesn't exist
+    """
     for q in questions:
         if q["question_text"] == question:
             return q["link"]
     return "Link not found."
 
 def get_answer(question):
+    """
+    Retrieves the correct answer for a given question.
+    
+    Args:
+        question (str): The full text of the question to search for
+        
+    Returns:
+        str: The correct answer text if found,
+             or "Question not found." if the question doesn't exist
+    """
     for q in questions:
         if q["question_text"] == question:
             return q["correct_answer"]
     return "Question not found."
 
-def summarize(question):
-    #todo: if answer is correct, give chapter information as well.
-
-    chapter = get_link_questions(question)
-    text =  get_information(chapter)
-    correct_answer = get_answer(question)
-
-    chat_completion = client.chat.completions.create(
-        model = "gpt-4o-mini",
-        messages = [{"role": "system", "content":f'''find the correct answer:[{correct_answer}] in the text:[{text}], output the coorect answer: [{correct_answer}] and summarize the text: [{text}] in 4 sentences in German'''},],
-        temperature = 0.2,
-    ).choices[0]
-    content = chat_completion.message.content
-    return content
-
 def get_information(chapter_number):
+    """
+    Retrieves detailed information for a specific chapter number.
+    
+    Args:
+        chapter_number (str): The chapter reference number (e.g., "1.1.1")
+        
+    Returns:
+        str: The detailed information text for the chapter if found,
+             or "Chapter not found" if the chapter doesn't exist
+    """
     for entry in reference:
         if entry['chapter'] == chapter_number:
             return entry['information']
     return "Chapter not found"
 
-
-# --------------------------------------------------------------
-# New get_correctness
-# --------------------------------------------------------------
-
-
-def get_correctness(question,answer):
-    lsp =  ' « '
-    rsp = ' » '
-
-
-    header_question = ('Die Frage lautet wie folgt: ')
-    hermes_extract_link = get_link_questions(question)
-    hermes_extract = get_information(hermes_extract_link)\
-                .replace('\n    ','')\
-                .replace('\n\t',' ')\
-                .replace('- ','')\
-                .replace('\n','')
-
-    header_answer_to_test = 'Ist die folgende Antwort entweder korrect oder falsch: '
-    answer_to_test = answer
+def summarize(question):
+    """
+    Creates a comprehensive summary feedback of a question's context and answer.
+    
+    This function:
+    1. Gets the chapter link for the question
+    2. Retrieves the detailed information from that chapter
+    3. Gets the correct answer that corresponds to the question
+    4. Uses GPT-4.o to generate a 4-sentence summary in German that 
+    summarizes the key information relevant to answer the question at hand
+    
+    Args:
+        question (str): The question to summarize
+        
+    Returns:
+        str: AI-generated summary combining the correct answer and chapter information
+    """
+    chapter = get_link_questions(question)
+    text = get_information(chapter)
     correct_answer = get_answer(question)
-    header_correct_answer = 'Diese Antwort ist eine korrekte: '
-
-    prefix2 = ('Bitte prüfen Sie die folgende Antwort, indem Sie diese mit '
-                'den im Handbuch der Hermes-Methode verwendeten Konzepten und Terminologien vergleichen. '
-                'Geben Sie an, ob diese Antwort nach den Standards der Hermes-Methode richtig oder falsch ist, '
-                'und erläutern Sie ausführlich die Gründe für die Bewertung. '
-                'Konzentrieren Sie sich auf Begriffe wie sie im folgenden Abschnitt der Hermes-Methode definiert sind: ')
-
-    categorization ='Bitte klassifiert ein JSON mit key correctness und Wert als entweder:' + lsp + 'correct' + 'oder' + rsp + 'incorrect'
-
-    prompt = prefix2 + lsp + hermes_extract + rsp \
-    + header_correct_answer + lsp + correct_answer +rsp \
-    + header_question + lsp + question + rsp \
-    + header_answer_to_test + lsp + answer_to_test + rsp +'?'\
-    +categorization
-
     chat_completion = client.chat.completions.create(
         model = "gpt-4o-mini",
-        messages = [{"role": "system", "content":prompt},],
+        messages = [
+            {
+                "role": "system", 
+                "content": f'''find the correct answer:[{correct_answer}] in the text:[{text}], output the coorect answer: [{correct_answer}] and summarize the text: [{text}] in 4 sentences in German'''
+            }
+        ],
         temperature = 0.2,
-        response_format = {"type": "json_object"},
     ).choices[0]
     content = chat_completion.message.content
-    data = content
-    parsed_data = json.loads(data)
-    correct_value = parsed_data["correctness"]
-
-    return correct_value
-
-
-
+    return content
 
 # --------------------------------------------------------------
-# Store User Data #TODO: tentatively, remove this; only useful for studying individual user's history
-# if we use it, change datastore location - this one is a huggingface DB
+# Determine the correctness of the learners' answers
 # --------------------------------------------------------------
 
-JSON_DATASET_DIR = Path("json_dataset")
-JSON_DATASET_DIR.mkdir(parents=True, exist_ok=True)
+class TextMarkers:
+    """Constants for text formatting markers"""
+    LEFT = ' « '
+    RIGHT = ' » '
 
-JSON_DATASET_PATH = JSON_DATASET_DIR / f"train-{uuid4()}.json"
+class Headers:
+    """Constants for prompt section headers in German"""
+    QUESTION = 'Die Frage lautet wie folgt: '
+    ANSWER_TEST = 'Ist die folgende Antwort entweder korrect oder falsch: '
+    CORRECT_ANSWER = 'Diese Antwort ist eine korrekte: '
+    EVALUATION_PREFIX = (
+        'Bitte prüfen Sie die folgende Antwort, indem Sie diese mit '
+        'den im Handbuch der Hermes-Methode verwendeten Konzepten und Terminologien vergleichen. '
+        'Geben Sie an, ob diese Antwort nach den Standards der Hermes-Methode richtig oder falsch ist, '
+        'und erläutern Sie ausführlich die Gründe für die Bewertung. '
+        'Konzentrieren Sie sich auf Begriffe wie sie im folgenden Abschnitt der Hermes-Methode definiert sind: '
+    )
 
-# scheduler = CommitScheduler(
-#     repo_id="nana95/users_history",
-#     repo_type="dataset",
-#     folder_path=JSON_DATASET_DIR,
-#     path_in_repo="data",
-# )
-
-
-def save(question,chatbot, request: gr.Request):
-    user = request.username
-    with scheduler.lock:
-        with JSON_DATASET_PATH.open("a") as f:
-            json.dump({"question": question, "chatbot": chatbot, "user": user, "datetime": datetime.now().isoformat()}, f)
-            f.write("\n")
-
-# --------------------------------------------------------------
-# The Interaction has 3 steps: the first trial, a second trial with
-# a hint and the last step with the correct answer and the feedback
-# --------------------------------------------------------------
-
-'''
-##TODO remove; this is from the RAG version (RAG)
-def submit(question, message, chat_history):
-
-        correctness = get_correctness_queryEngine(question,message)
-        if "incorrect" in correctness:
-            bot_message = f"Deine Antwort ist falsch, versuche es noch einmal!"
-        else:
-            bot_message = f"Deine Antwort ist richtig, gute Arbeit!"  +" "+ summarize(question)
-        return bot_message
-
-        '''
-
-# First attempt runs this
-def retry(question, message, chat_history):
-        answer = get_answer(question)
-        correctness = get_correctness(question,message)
-        link = get_link_questions(question)
-        if "incorrect" in correctness:
-            bot_message = f"Deine Antwort ist falsch, versuche es noch einmal, bitte sieh dir die folgenden Kapitel an: {link}."
-        else:
-            bot_message = f"Deine Antwort ist richtig, gute Arbeit!" +" "+ summarize(question)
-        return bot_message
-
-#Second attempt after a wrong answer
-def feedback(question, message, chat_history):
-    answer = get_answer(question)
-    correctness = get_correctness(question,message)
-    summary = summarize(question)
-    if "incorrect" in correctness:
-        bot_message = f"Deine Antwort ist falsch! "+ " " + summarize(question)
-    else:
-        bot_message = f"Deine Antwort ist richtig, gute Arbeit!" +" "+ summarize(question)
-
-    #bot_message = f"{summary}"
-    return bot_message
-
-
-# --------------------------------------------------------------
-# Interactive Interface
-# --------------------------------------------------------------
-
-'''
-#TODO remove RAG
-def update_chatbot(chatbot,question_text, msg):
-    css = """
-    #correct {background-color: #34D640}
-    #incorrect {background-color: #ED73FF}
-
+def clean_hermes_extract(text: str) -> str:
     """
-
-    correctness = get_correctness_queryEngine(question_text, msg)
-    if correctness == 'correct':
-        chatbot = gr.Chatbot(height=250, label="Feedback", elem_id="correct")
-    elif correctness == 'incorrect':
-        chatbot = gr.Chatbot(height=250, label="Feedback", elem_id="incorrect")
-    else:
-        chatbot = gr.Chatbot(height=250, label="Feedback")
-    return chatbot
-    '''
-
-#Just color changes
-def update_chatbot(chatbot,question_text, msg):
-    css = """
-    #correct {background-color: #d8fc9d}
-    #incorrect {background-color: #f590af}
-
+    Cleans and formats the HERMES documentation extract by removing unnecessary whitespace and markers.
+    
+    Args:
+        text (str): Raw text from HERMES documentation
+        
+    Returns:
+        str: Cleaned and formatted text
     """
+    replacements = {
+        '\n ': '',
+        '\n\t': ' ',
+        '- ': '',
+        '\n': ''
+    }
+    
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    
+    return text
 
-    correctness = get_correctness(question_text, msg)
-    if correctness == 'correct':
-        chatbot = gr.Chatbot(height=300, label="Feedback", elem_id="correct")
-    elif correctness == 'incorrect':
-        chatbot = gr.Chatbot(height=300, label="Feedback", elem_id="incorrect")
-    #else:
-        #chatbot = gr.Chatbot(height=150, label="Feedback")
-    return chatbot
+def construct_evaluation_prompt(
+    hermes_extract: str,
+    correct_answer: str,
+    question: str,
+    answer_to_test: str,
+    markers: TextMarkers
+) -> str:
+    """
+    Constructs the evaluation prompt for the AI model.
+    
+    Args:
+        hermes_extract (str): Cleaned HERMES documentation extract
+        correct_answer (str): The known correct answer
+        question (str): The question being evaluated
+        answer_to_test (str): The learner's answer being evaluated
+        markers: Text marker constants
+        
+    Returns:
+        str: Formatted prompt for the AI model
+    """
+    categorization = (
+        f'Bitte klassifiert ein JSON mit key correctness und Wert als entweder:'
+        f'{markers.LEFT}correct oder{markers.RIGHT}incorrect'
+    )
+    
+    # Using f-strings for better readability and performance
+    return (
+        f'{Headers.EVALUATION_PREFIX}{markers.LEFT}{hermes_extract}{markers.RIGHT}'
+        f'{Headers.CORRECT_ANSWER}{markers.LEFT}{correct_answer}{markers.RIGHT}'
+        f'{Headers.QUESTION}{markers.LEFT}{question}{markers.RIGHT}'
+        f'{Headers.ANSWER_TEST}{markers.LEFT}{answer_to_test}{markers.RIGHT}?'
+        f'{categorization}'
+    )
+
+def get_correctness(question: str, answer: str) -> Optional[str]:
+    """
+    Evaluates whether a given answer to a HERMES methodology question is correct 
+    by comparing it against official HERMES documentation and standards.
+
+    Args:
+        question (str): The HERMES methodology question to evaluate
+        answer (str): The proposed answer to evaluate for correctness
+
+    Returns:
+        str: Either 'correct' or 'incorrect' based on the AI evaluation
+        None: If there's an error in processing
+
+    Raises:
+        JSONDecodeError: If the AI response cannot be parsed as JSON
+        KeyError: If the expected 'correctness' key is missing from the response
+    """
+    try:
+        # Get and process HERMES documentation
+        hermes_extract_link = get_link_questions(question)
+        hermes_extract = clean_hermes_extract(get_information(hermes_extract_link))
+        correct_answer = get_answer(question)
+        
+        # Construct the evaluation prompt
+        prompt = construct_evaluation_prompt(
+            hermes_extract=hermes_extract,
+            correct_answer=correct_answer,
+            question=question,
+            answer_to_test=answer,
+            markers=TextMarkers
+        )
+        
+        # Make the API call
+        chat_completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        ).choices[0]
+        
+        # Parse and validate the response
+        parsed_data = json.loads(chat_completion.message.content)
+        if "correctness" not in parsed_data:
+            raise KeyError("Response missing 'correctness' field")
+            
+        return parsed_data["correctness"]
+        
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Error processing response: {str(e)}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return None
+
+
 
 # --------------------------------------------------------------
-# Interface
+# Interactive Learning Flow
+# --------------------------------------------------------------
+# The interaction follows a 3-step learning process:
+# 1. First trial: Student attempts the question with a link to relevant docs if incorrect
+# 2. Second trial: Student gets another try with a detailed summary as a hint
+# 3. Final step: Shows correct answer and comprehensive feedback
 # --------------------------------------------------------------
 
-theme = Theme()
+@dataclass
+class LearningResponse:
+   """Structured response for learning interactions"""
+   is_correct: bool
+   message: str
+   summary: Optional[str] = None
+   
+class FeedbackMessages:
+   """Constants for feedback messages in German"""
+   CORRECT = "Deine Antwort ist richtig, gute Arbeit!"
+   INCORRECT_WITH_LINK = "Deine Antwort ist falsch, versuche es noch einmal, bitte sieh dir die folgenden Kapitel an: {}"
+   INCORRECT_WITH_HINT = "Deine Antwort ist falsch!"
 
-css = """
-    #correct {background-color: #34D640}
-    #incorrect {background-color: #ED73FF}
-    h1 {
-    color: #2073F7;
-    display:block;}
+def evaluate_answer(question: str, message: str) -> LearningResponse:
+   """
+   Evaluates a student's answer and prepares appropriate feedback.
+   
+   Args:
+       question (str): The question being answered
+       message (str): Student's answer
+       
+   Returns:
+       LearningResponse: Contains evaluation results and feedback
+   """
+   correctness = get_correctness(question, message)
+   is_correct = "incorrect" not in correctness
+   summary = summarize(question) if is_correct else None
+   
+   return LearningResponse(
+       is_correct=is_correct,
+       message=FeedbackMessages.CORRECT if is_correct else "",
+       summary=summary
+   )
 
-    """
+def first_trial(
+   question: str, 
+   message: str, 
+   chat_history: List[Tuple[str, str]]
+) -> str:
+   """
+   Handles the first attempt at answering a question.
+   
+   Args:
+       question (str): The question being answered
+       message (str): Student's answer
+       chat_history: List of previous interactions
+       
+   Returns:
+       str: Feedback message with link to documentation if incorrect
+   """
+   try:
+       response = evaluate_answer(question, message)
+       
+       if not response.is_correct:
+           link = get_link_questions(question)
+           return FeedbackMessages.INCORRECT_WITH_LINK.format(link)
+           
+       return f"{FeedbackMessages.CORRECT} {response.summary}"
+       
+   except Exception as e:
+       print(f"Error in first trial: {str(e)}")
+       return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es später erneut."
 
-users = [("Test", "Test")]
+def second_trial(
+   question: str, 
+   message: str, 
+   chat_history: List[Tuple[str, str]]
+) -> str:
+   """
+   Handles the second attempt at answering a question with more detailed feedback.
+   
+   Args:
+       question (str): The question being answered
+       message (str): Student's answer
+       chat_history: List of previous interactions
+       
+   Returns:
+       str: Feedback message with comprehensive summary
+   """
+   try:
+       summary = summarize(question)
+       response = evaluate_answer(question, message)
+       
+       if not response.is_correct:
+           return f"{FeedbackMessages.INCORRECT_WITH_HINT} {summary}"
+           
+       return f"{FeedbackMessages.CORRECT} {summary}"
+       
+   except Exception as e:
+       print(f"Error in second trial: {str(e)}")
+       return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es später erneut."
+
+def get_final_feedback(question: str) -> str:
+   """
+   Provides the final feedback with correct answer and comprehensive explanation.
+   
+   Args:
+       question (str): The question being answered
+       
+   Returns:
+       str: Complete feedback with correct answer and explanation
+   """
+   try:
+       answer = get_answer(question)
+       summary = summarize(question)
+       return f"Die korrekte Antwort lautet: {answer}\n\nErklärung:\n{summary}"
+       
+   except Exception as e:
+       print(f"Error getting final feedback: {str(e)}")
+       return "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es später erneut."
 
 
+# --------------------------------------------------------------
+# Interactive Chatbot Interface with Visual Feedback
+# --------------------------------------------------------------
+# provides a dynamic chatbot interface that updates its appearance
+# based on answer correctness:
+# - Correct answers trigger a green background (#d8fc9d)
+# - Incorrect answers trigger a pink background (#f590af)
+# The visual feedback helps learners immediately identify their performance
+# --------------------------------------------------------------
+
+def update_chatbot(
+   chatbot: "gr.Chatbot",
+   question_text: str, 
+   msg: str
+) -> "gr.Chatbot":
+   """
+   Updates the chatbot's visual appearance based on answer correctness.
+   
+   The function evaluates the user's answer and modifies the chatbot's
+   background color to provide immediate visual feedback. Green indicates
+   a correct answer, while pink indicates an incorrect one.
+
+   Args:
+       chatbot (gr.Chatbot): The current Gradio chatbot instance to be updated
+       question_text (str): The question that was asked
+       msg (str): The user's answer to evaluate
+
+   Returns:
+       gr.Chatbot: A new chatbot instance with updated styling based on 
+                  answer correctness
+
+   Note:
+       The function uses CSS styling to provide visual feedback:
+       - Correct answers: Light green background (#d8fc9d)
+       - Incorrect answers: Light pink background (#f590af)
+   """
+
+   # Define CSS styles for visual feedback
+   css = """
+   #correct {
+       background-color: #d8fc9d;    /* Light green for correct answers */
+   }
+   #incorrect {
+       background-color: #f590af;    /* Light pink for incorrect answers */
+   }
+   """
+
+   # Evaluate the correctness of the answer
+   correctness = get_correctness(question_text, msg)
+
+   # Create new chatbot instance with appropriate styling
+   if correctness == 'correct':
+       # Configure chatbot with correct answer styling
+       chatbot = gr.Chatbot(
+           height=300,           # Fixed height for consistent appearance
+           label="Feedback",     # Label indicating purpose
+           elem_id="correct"     # ID for CSS styling
+       )
+   elif correctness == 'incorrect':
+       # Configure chatbot with incorrect answer styling
+       chatbot = gr.Chatbot(
+           height=300,           # Fixed height for consistent appearance
+           label="Feedback",     # Label indicating purpose
+           elem_id="incorrect"   # ID for CSS styling
+       )
+
+   return chatbot
+
+# --------------------------------------------------------------
+# Chat history handling
+# --------------------------------------------------------------
 
 
 def user(user_message, history):
     return "", history + [[user_message, None]]
 
-
-
-# History within the question (knowing if first or second attempt)
 def bot(history, messages_history,question,attempt_tracker):
     user_message = history[-1][0]
     bot_message, messages_history, attempt_tracker= handle_response(question, user_message, messages_history,attempt_tracker)
-    #bot_message, messages_history = ask_gpt(user_message, messages_history)
     messages_history += [{"role": "assistant", "content": bot_message}]
     history[-1][1] = bot_message
-    time.sleep(1) #TODO check if this is actually necessary
+    time.sleep(1)
     return history, messages_history,attempt_tracker
 
-#Clear history -> next question
 def init_history(messages_history):
     messages_history = []
-    #messages_history += [system_message]
     return messages_history
 
+# --------------------------------------------------------------
+# HERMES Training System Interface
+# Creates a Gradio-based web interface for the HERMES training system
+# with visual feedback and authentication
+# --------------------------------------------------------------
+
+# Initialize theme and define CSS styling
+theme = Theme()
+
+# CSS styles for visual feedback and layout
+css = """
+   /* Correct answer indicator - green background */
+   #correct {
+       background-color: #34D640  /* Bright green */
+   }
+   
+   /* Incorrect answer indicator - purple background */
+   #incorrect {
+       background-color: #ED73FF  /* Light purple */
+   }
+   
+   /* Main heading style */
+   h1 {
+       color: #2073F7;           /* Bright blue */
+       display: block;           /* Full width display */
+   }
+"""
+
+# Create main interface using Gradio Blocks
 with gr.Blocks(theme=theme, css=css) as demo:
-    gr.Markdown("## HERMES TRAINING SYSTEM")
-    gr.Markdown("Hier ist ein Satz Fragen basierend auf dem Referenzhandbuch der HERMES-Methode.")
-    gr.Markdown("Beantworten Sie jede Frage mit Ihren eigenen Worten und drücken Sie die Eingabetaste, um Rückmeldung zu erhalten.")
+   # Header and introduction
+   gr.Markdown("## HERMES TRAINING SYSTEM")
+   gr.Markdown("Hier ist ein Satz Fragen basierend auf dem Referenzhandbuch der HERMES-Methode.")
+   gr.Markdown("Beantworten Sie jede Frage mit Ihren eigenen Worten und drücken Sie die Eingabetaste, um Rückmeldung zu erhalten.")
+   
+   # Initialize attempt tracking
+   attempt_tracker = gr.State({})
+
+   def handle_response(question, message, messages_history, attempt_tracker):
+       """Process user responses and manage attempt tracking"""
+       # Initialize attempt counter for new questions
+       if question not in attempt_tracker:
+           attempt_tracker[question] = 0
+           
+       attempts = attempt_tracker[question]
+       
+       # Handle different attempt stages
+       if attempts == 0:
+           # First attempt - provide link to relevant documentation
+           bot_message = first_trial(question, message, messages_history)
+       else:
+           # Subsequent attempts - provide detailed feedback
+           bot_message = second_trial(question, message, messages_history)
+           messages_history += bot_message
+           
+       # Increment attempt counter
+       attempt_tracker[question] = attempts + 1
+       
+       return bot_message, messages_history, attempt_tracker
+
+   # Create interface elements for each question
+   for index, question in enumerate(questions, start=1):
+       with gr.Accordion(f"Frage {index}", open=False):
+           with gr.Row():
+               # Hidden question text storage
+               question_text = gr.Textbox(
+                   value=question['question_text'],
+                   interactive=False,
+                   visible=False
+               )
+               # User input field
+               msg = gr.Textbox(label=question['question_text'])
+               
+           with gr.Row():
+               # Feedback display area
+               chatbot = gr.Chatbot(
+                   height='300px',
+                   label="Feedback"
+               )
+               # Conversation state tracking
+               state = gr.State([])
+               
+               # Connect interface events
+               # Update chatbot appearance based on answer correctness
+               msg.submit(
+                   fn=update_chatbot,
+                   inputs=[chatbot, question_text, msg],
+                   outputs=chatbot
+               )
+               
+               # Process user input and generate response
+               msg.submit(
+                   user,
+                   [msg, chatbot],
+                   [msg, chatbot],
+                   queue=False
+               ).then(
+                   bot,
+                   [chatbot, state, question_text, attempt_tracker],
+                   [chatbot, state]
+               )
+
+   # Set up authentication
+   users = [("Test", "Test")]  # Username/password pair
+   
+   # Launch the interface with authentication enabled
+   demo.launch(auth=users)
 
 
 
-    attempt_tracker = gr.State({})
 
-    def handle_response(question, message, messages_history,attempt_tracker):
-        if question not in attempt_tracker:
-            attempt_tracker[question] = 0
-        attempts = attempt_tracker[question]
-        if attempts == 0:
-            #bot_message = submit(question, message, messages_history)
-            bot_message = retry(question, message, messages_history)
-
-        #elif attempts == 1:
-            #bot_message = retry(question, message, messages_history)
-
-        else:
-            bot_message = feedback(question, message, messages_history)
-
-        messages_history += bot_message
-        attempt_tracker[question] = attempts + 1
-
-        return bot_message, messages_history, attempt_tracker
-
-
-    #ENUM: 0=German, 1=French, (2=English to be added at a later date)
-    language = 0
-
-    for index,question in enumerate(questions, start=1):
-        with gr.Accordion(f"Frage {index}", open=False):
-            with gr.Row():
-                question_text = gr.Textbox(value=question['question_text'], interactive=False, visible=False)
-                msg = gr.Textbox(label=question['question_text'])
-            with gr.Row():
-                chatbot = gr.Chatbot(height='300px',label="Feedback")
-                state = gr.State([])
-               # msg.submit(fn=update_chatbot, inputs=[chatbot ,question_text, msg], outputs=chatbot).success(fn=save, inputs=[question_text, chatbot],outputs=None,)
-                msg.submit(user, [msg, chatbot], [msg, chatbot], queue=False).then(bot, [chatbot, state,question_text,attempt_tracker], [chatbot, state])
-
-demo.launch(share=True)

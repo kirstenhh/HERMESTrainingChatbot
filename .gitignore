@@ -6,6 +6,8 @@ lib64/
 share/
 Docs/
 learning-*
+.DS_Store
+pyvenv.cfg
 reference-*
 
 lib64
