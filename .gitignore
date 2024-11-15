@@ -5,6 +5,11 @@ lib/
 lib64/
 share/
 Docs/
+learning-*
+reference-*
+
+lib64
+certificate.pem
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
